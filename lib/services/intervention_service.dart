@@ -104,6 +104,8 @@ class InterventionService {
     );
 
     // In a real Android app, you would use:
+    // import 'package:vibration/vibration.dart';
+    //
     // if (await Vibration.hasVibrator() ?? false) {
     //   await Vibration.vibrate(duration: AppConstants.vibrationDurationMs);
     //   await Future.delayed(
