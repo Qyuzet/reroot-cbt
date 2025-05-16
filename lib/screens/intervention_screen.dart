@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
-import '../services/intervention_service.dart';
-import '../utils/constants.dart';
+import '../services/dynamic_intervention_service.dart';
 import '../widgets/intervention_step_card.dart';
 import '../widgets/progress_card.dart';
-import '../theme/app_theme.dart';
 
 class InterventionScreen extends StatefulWidget {
   const InterventionScreen({super.key});
@@ -14,32 +12,28 @@ class InterventionScreen extends StatefulWidget {
 
 class _InterventionScreenState extends State<InterventionScreen>
     with SingleTickerProviderStateMixin {
-  late InterventionService _interventionService;
+  late DynamicInterventionService _interventionService;
   int _currentStep = 0;
   double _progress = 0.0;
   bool _isSessionActive = false;
+
+  // Dynamic step information
+  String _currentStepTitle = '';
+  String _currentStepDescription = '';
 
   // Animation controller for smooth transitions
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
 
-  // Step icons
-  final List<IconData> _stepIcons = [
-    Icons.pan_tool,
-    Icons.vibration,
-    Icons.flashlight_on_outlined,
-    Icons.flashlight_on,
-    Icons.music_note,
-  ];
-
-  // Step descriptions
-  final List<String> _stepDescriptions = [
-    'Hold your phone with your left hand, then shake gently to confirm',
-    'Feel the vibration and focus on your breath with each pulse',
-    'Position the phone so the flash faces your closed eyes, then shake to confirm',
-    'The flashlight will activate in a pattern for light therapy',
-    'Listen to the calming sound and relax your mind',
-  ];
+  // Step icons - will be selected based on step type
+  final Map<String, IconData> _stepTypeIcons = {
+    'handPosition': Icons.pan_tool,
+    'vibration': Icons.vibration,
+    'flashlight': Icons.flashlight_on,
+    'audio': Icons.music_note,
+    'breathe': Icons.air,
+    'visualize': Icons.remove_red_eye,
+  };
 
   @override
   void initState() {
@@ -62,7 +56,7 @@ class _InterventionScreenState extends State<InterventionScreen>
   }
 
   void _initializeInterventionService() {
-    _interventionService = InterventionService(
+    _interventionService = DynamicInterventionService(
       context: context,
       onStepChanged: (step) {
         setState(() {
@@ -75,6 +69,13 @@ class _InterventionScreenState extends State<InterventionScreen>
       onProgressChanged: (progress) {
         setState(() {
           _progress = progress;
+        });
+      },
+      onStepInfoChanged: (title, description) {
+        // Update step info in the UI
+        setState(() {
+          _currentStepTitle = title;
+          _currentStepDescription = description;
         });
       },
       onSessionCompleted: _handleSessionCompleted,
@@ -266,6 +267,37 @@ class _InterventionScreenState extends State<InterventionScreen>
     return true;
   }
 
+  // Get the appropriate icon for the current step
+  IconData _getIconForCurrentStep() {
+    // Default icon if we can't determine the step type
+    if (_currentStepTitle.isEmpty) {
+      return Icons.help_outline;
+    }
+
+    // Try to determine the step type from the title
+    if (_currentStepTitle.toLowerCase().contains('vibration')) {
+      return _stepTypeIcons['vibration']!;
+    } else if (_currentStepTitle.toLowerCase().contains('flash') ||
+        _currentStepTitle.toLowerCase().contains('light')) {
+      return _stepTypeIcons['flashlight']!;
+    } else if (_currentStepTitle.toLowerCase().contains('hold') ||
+        _currentStepTitle.toLowerCase().contains('hand')) {
+      return _stepTypeIcons['handPosition']!;
+    } else if (_currentStepTitle.toLowerCase().contains('listen') ||
+        _currentStepTitle.toLowerCase().contains('sound') ||
+        _currentStepTitle.toLowerCase().contains('audio')) {
+      return _stepTypeIcons['audio']!;
+    } else if (_currentStepTitle.toLowerCase().contains('breath')) {
+      return _stepTypeIcons['breathe']!;
+    } else if (_currentStepTitle.toLowerCase().contains('visual') ||
+        _currentStepTitle.toLowerCase().contains('imagine')) {
+      return _stepTypeIcons['visualize']!;
+    }
+
+    // Fallback to a generic icon
+    return Icons.spa;
+  }
+
   @override
   void dispose() {
     _animationController.dispose();
@@ -327,9 +359,9 @@ class _InterventionScreenState extends State<InterventionScreen>
                         opacity: _fadeAnimation,
                         child: InterventionStepCard(
                           stepNumber: 'Step ${_currentStep + 1}',
-                          title: AppConstants.interventionSteps[_currentStep],
-                          description: _stepDescriptions[_currentStep],
-                          icon: _stepIcons[_currentStep],
+                          title: _currentStepTitle,
+                          description: _currentStepDescription,
+                          icon: _getIconForCurrentStep(),
                           isActive: true,
                           progress: _progress,
                         ),

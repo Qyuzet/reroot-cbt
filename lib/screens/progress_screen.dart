@@ -3,6 +3,8 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import '../models/session.dart';
 import '../services/storage_service.dart';
+import '../services/gemini_service.dart';
+import '../theme/app_theme.dart';
 
 class ProgressScreen extends StatefulWidget {
   const ProgressScreen({super.key});
@@ -11,13 +13,17 @@ class ProgressScreen extends StatefulWidget {
   State<ProgressScreen> createState() => _ProgressScreenState();
 }
 
-class _ProgressScreenState extends State<ProgressScreen> {
+class _ProgressScreenState extends State<ProgressScreen> with SingleTickerProviderStateMixin {
   List<Session> _sessions = [];
   bool _isLoading = true;
+  String _aiFeedback = '';
+  bool _isLoadingFeedback = false;
+  late TabController _tabController;
   
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 3, vsync: this);
     _loadSessions();
   }
   
@@ -32,6 +38,47 @@ class _ProgressScreenState extends State<ProgressScreen> {
       _sessions = sessions;
       _isLoading = false;
     });
+    
+    // Get AI feedback if there are sessions
+    if (sessions.isNotEmpty) {
+      _getAIFeedback();
+    }
+  }
+  
+  Future<void> _getAIFeedback() async {
+    if (_sessions.isEmpty) return;
+    
+    setState(() {
+      _isLoadingFeedback = true;
+    });
+    
+    try {
+      // Get the most recent session
+      final latestSession = _sessions.reduce(
+        (a, b) => a.timestamp.isAfter(b.timestamp) ? a : b,
+      );
+      
+      // Get AI feedback
+      final geminiService = GeminiService();
+      final feedback = await geminiService.getSessionFeedback(latestSession);
+      
+      setState(() {
+        _aiFeedback = feedback;
+        _isLoadingFeedback = false;
+      });
+    } catch (e) {
+      debugPrint('Error getting AI feedback: $e');
+      setState(() {
+        _aiFeedback = 'Great job on your progress! Keep up the good work.';
+        _isLoadingFeedback = false;
+      });
+    }
+  }
+  
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
   
   @override
@@ -41,6 +88,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Progress Dashboard'),
+        centerTitle: true,
+        elevation: 0,
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -55,22 +104,52 @@ class _ProgressScreenState extends State<ProgressScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.bar_chart,
-            size: 80,
-            color: theme.colorScheme.primary.withOpacity(0.5),
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.bar_chart,
+              size: 80,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'No Sessions Yet',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
           ),
           const SizedBox(height: 16),
-          Text(
-            'No sessions yet',
-            style: theme.textTheme.headlineSmall,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Text(
+              'Complete your first intervention session to start tracking your progress',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: theme.colorScheme.onBackground.withOpacity(0.7),
+                height: 1.5,
+              ),
+            ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Complete your first intervention session\nto start tracking your progress',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodyLarge?.copyWith(
-              color: theme.colorScheme.onBackground.withOpacity(0.7),
+          const SizedBox(height: 32),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+            },
+            icon: const Icon(Icons.play_arrow),
+            label: const Text('Start a Session'),
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 12,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(30),
+              ),
             ),
           ),
         ],
@@ -79,6 +158,55 @@ class _ProgressScreenState extends State<ProgressScreen> {
   }
   
   Widget _buildProgressDashboard(ThemeData theme) {
+    return Column(
+      children: [
+        // Tabs
+        Container(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 5,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: TabBar(
+            controller: _tabController,
+            labelColor: theme.colorScheme.primary,
+            unselectedLabelColor: theme.colorScheme.onSurface.withOpacity(0.6),
+            indicatorColor: theme.colorScheme.primary,
+            indicatorSize: TabBarIndicatorSize.label,
+            tabs: const [
+              Tab(text: 'Overview'),
+              Tab(text: 'Analytics'),
+              Tab(text: 'History'),
+            ],
+          ),
+        ),
+        
+        // Tab content
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: [
+              // Overview tab
+              _buildOverviewTab(theme),
+              
+              // Analytics tab
+              _buildAnalyticsTab(theme),
+              
+              // History tab
+              _buildHistoryTab(theme),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+  
+  Widget _buildOverviewTab(ThemeData theme) {
     // Calculate statistics
     final completedSessions = _sessions.where((s) => s.wasCompleted).length;
     final totalSessions = _sessions.length;
@@ -86,119 +214,250 @@ class _ProgressScreenState extends State<ProgressScreen> {
         ? (completedSessions / totalSessions) * 100
         : 0.0;
     
-    // Get last 7 days of sessions for the chart
-    final last7DaysSessions = _getLast7DaysSessions();
+    // Calculate streak
+    final streak = _calculateStreak();
+    
+    // Calculate average duration
+    final avgDuration = _calculateAverageDuration();
     
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Summary cards
-          _buildSummaryCards(theme, completedSessions, totalSessions, completionRate),
+          // AI Feedback card
+          _buildAIFeedbackCard(theme),
           const SizedBox(height: 24),
           
-          // Weekly chart
-          _buildWeeklyChart(theme, last7DaysSessions),
+          // Stats grid
+          _buildStatsGrid(
+            theme,
+            totalSessions,
+            completionRate,
+            streak,
+            avgDuration,
+          ),
           const SizedBox(height: 24),
           
-          // Session history
-          _buildSessionHistory(theme),
+          // Weekly progress
+          _buildWeeklyProgressCard(theme),
+          const SizedBox(height: 24),
+          
+          // Recent sessions
+          _buildRecentSessionsCard(theme),
         ],
       ),
     );
   }
   
-  Widget _buildSummaryCards(
+  Widget _buildAIFeedbackCard(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: AppTheme.calmingGradient,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: theme.colorScheme.primary.withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.psychology,
+                  color: Colors.white,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'AI Feedback',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _isLoadingFeedback
+              ? const Center(
+                  child: CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                )
+              : Text(
+                  _aiFeedback,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    color: Colors.white,
+                    height: 1.5,
+                  ),
+                ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildStatsGrid(
     ThemeData theme,
-    int completedSessions,
     int totalSessions,
     double completionRate,
+    int streak,
+    int avgDuration,
   ) {
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Total sessions card
-        Expanded(
-          child: _buildSummaryCard(
-            theme,
-            'Total Sessions',
-            totalSessions.toString(),
-            Icons.calendar_today,
-            theme.colorScheme.primary,
+        Text(
+          'Your Stats',
+          style: theme.textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.bold,
           ),
         ),
-        const SizedBox(width: 16),
-        
-        // Completion rate card
-        Expanded(
-          child: _buildSummaryCard(
-            theme,
-            'Completion Rate',
-            '${completionRate.toStringAsFixed(1)}%',
-            Icons.check_circle,
-            theme.colorScheme.secondary,
-          ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: _buildStatCard(
+                theme,
+                'Sessions',
+                totalSessions.toString(),
+                Icons.calendar_today,
+                Colors.blue,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: _buildStatCard(
+                theme,
+                'Streak',
+                '$streak days',
+                Icons.local_fire_department,
+                Colors.orange,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: _buildStatCard(
+                theme,
+                'Success Rate',
+                '${completionRate.toStringAsFixed(1)}%',
+                Icons.check_circle_outline,
+                Colors.green,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: _buildStatCard(
+                theme,
+                'Avg. Duration',
+                _formatDuration(avgDuration),
+                Icons.timer,
+                Colors.purple,
+              ),
+            ),
+          ],
         ),
       ],
     );
   }
   
-  Widget _buildSummaryCard(
+  Widget _buildStatCard(
     ThemeData theme,
     String title,
     String value,
     IconData icon,
     Color color,
   ) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            spreadRadius: 0,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
                   icon,
                   color: color,
                   size: 20,
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  title,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurface.withOpacity(0.7),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: theme.textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: color,
               ),
+              const Spacer(),
+              Icon(
+                Icons.arrow_forward_ios,
+                color: theme.colorScheme.onSurface.withOpacity(0.3),
+                size: 14,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            value,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            title,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurface.withOpacity(0.7),
+            ),
+          ),
+        ],
       ),
     );
   }
   
-  Widget _buildWeeklyChart(ThemeData theme, Map<DateTime, List<Session>> sessionsByDay) {
-    final days = sessionsByDay.keys.toList()
+  Widget _buildWeeklyProgressCard(ThemeData theme) {
+    // Get last 7 days of sessions for the chart
+    final last7DaysSessions = _getLast7DaysSessions();
+    final days = last7DaysSessions.keys.toList()
       ..sort((a, b) => a.compareTo(b));
     
     // Calculate average completion percentage for each day
     final List<FlSpot> spots = [];
     for (int i = 0; i < days.length; i++) {
       final day = days[i];
-      final sessions = sessionsByDay[day] ?? [];
+      final sessions = last7DaysSessions[day] ?? [];
       
       if (sessions.isNotEmpty) {
         final avgCompletion = sessions.fold<double>(
@@ -217,155 +476,270 @@ class _ProgressScreenState extends State<ProgressScreen> {
       children: [
         Text(
           'Weekly Progress',
-          style: theme.textTheme.titleLarge,
+          style: theme.textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 16),
         Container(
-          height: 200,
+          height: 220,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: theme.cardColor,
-            borderRadius: BorderRadius.circular(12),
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withOpacity(0.05),
-                blurRadius: 5,
+                blurRadius: 10,
+                spreadRadius: 0,
                 offset: const Offset(0, 2),
               ),
             ],
           ),
-          child: LineChart(
-            LineChartData(
-              gridData: FlGridData(
-                show: true,
-                drawVerticalLine: false,
-                horizontalInterval: 20,
-                getDrawingHorizontalLine: (value) {
-                  return FlLine(
-                    color: theme.dividerColor.withOpacity(0.3),
-                    strokeWidth: 1,
-                  );
-                },
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Completion Rate',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withOpacity(0.7),
+                ),
               ),
-              titlesData: FlTitlesData(
-                show: true,
-                rightTitles: const AxisTitles(
-                  sideTitles: SideTitles(showTitles: false),
-                ),
-                topTitles: const AxisTitles(
-                  sideTitles: SideTitles(showTitles: false),
-                ),
-                bottomTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 30,
-                    interval: 1,
-                    getTitlesWidget: (value, meta) {
-                      if (value.toInt() >= 0 && value.toInt() < days.length) {
-                        final day = days[value.toInt()];
-                        return SideTitleWidget(
-                          axisSide: meta.axisSide,
-                          child: Text(
-                            DateFormat('E').format(day),
-                            style: theme.textTheme.bodySmall,
-                          ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: LineChart(
+                  LineChartData(
+                    gridData: FlGridData(
+                      show: true,
+                      drawVerticalLine: false,
+                      horizontalInterval: 20,
+                      getDrawingHorizontalLine: (value) {
+                        return FlLine(
+                          color: theme.dividerColor.withOpacity(0.3),
+                          strokeWidth: 1,
                         );
-                      }
-                      return const SizedBox.shrink();
-                    },
-                  ),
-                ),
-                leftTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    interval: 20,
-                    getTitlesWidget: (value, meta) {
-                      return SideTitleWidget(
-                        axisSide: meta.axisSide,
-                        child: Text(
-                          '${value.toInt()}%',
-                          style: theme.textTheme.bodySmall,
+                      },
+                    ),
+                    titlesData: FlTitlesData(
+                      show: true,
+                      rightTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                      topTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                      bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 30,
+                          interval: 1,
+                          getTitlesWidget: (value, meta) {
+                            if (value.toInt() >= 0 && value.toInt() < days.length) {
+                              final day = days[value.toInt()];
+                              return SideTitleWidget(
+                                axisSide: meta.axisSide,
+                                child: Text(
+                                  DateFormat('E').format(day),
+                                  style: theme.textTheme.bodySmall,
+                                ),
+                              );
+                            }
+                            return const SizedBox.shrink();
+                          },
                         ),
-                      );
-                    },
-                    reservedSize: 40,
+                      ),
+                      leftTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          interval: 20,
+                          getTitlesWidget: (value, meta) {
+                            return SideTitleWidget(
+                              axisSide: meta.axisSide,
+                              child: Text(
+                                '${value.toInt()}%',
+                                style: theme.textTheme.bodySmall,
+                              ),
+                            );
+                          },
+                          reservedSize: 40,
+                        ),
+                      ),
+                    ),
+                    borderData: FlBorderData(
+                      show: false,
+                    ),
+                    minX: 0,
+                    maxX: days.length.toDouble() - 1,
+                    minY: 0,
+                    maxY: 100,
+                    lineBarsData: [
+                      LineChartBarData(
+                        spots: spots,
+                        isCurved: true,
+                        color: theme.colorScheme.primary,
+                        barWidth: 3,
+                        isStrokeCapRound: true,
+                        dotData: FlDotData(
+                          show: true,
+                          getDotPainter: (spot, percent, barData, index) {
+                            return FlDotCirclePainter(
+                              radius: 4,
+                              color: theme.colorScheme.primary,
+                              strokeWidth: 2,
+                              strokeColor: Colors.white,
+                            );
+                          },
+                        ),
+                        belowBarData: BarAreaData(
+                          show: true,
+                          color: theme.colorScheme.primary.withOpacity(0.2),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
-              borderData: FlBorderData(
-                show: false,
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+  
+  Widget _buildRecentSessionsCard(ThemeData theme) {
+    // Get the 3 most recent sessions
+    final recentSessions = List<Session>.from(_sessions)
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp))
+      ..take(3);
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Recent Sessions',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
               ),
-              minX: 0,
-              maxX: days.length.toDouble() - 1,
-              minY: 0,
-              maxY: 100,
-              lineBarsData: [
-                LineChartBarData(
-                  spots: spots,
-                  isCurved: true,
-                  color: theme.colorScheme.primary,
-                  barWidth: 3,
-                  isStrokeCapRound: true,
-                  dotData: const FlDotData(show: true),
-                  belowBarData: BarAreaData(
-                    show: true,
-                    color: theme.colorScheme.primary.withOpacity(0.2),
+            ),
+            TextButton(
+              onPressed: () {
+                _tabController.animateTo(2); // Switch to History tab
+              },
+              child: const Text('View All'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ...recentSessions.map((session) => _buildSessionCard(theme, session)),
+      ],
+    );
+  }
+  
+  Widget _buildSessionCard(ThemeData theme, Session session) {
+    final dateFormat = DateFormat('MMM d, yyyy - h:mm a');
+    final formattedDate = dateFormat.format(session.timestamp);
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 5,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: session.wasCompleted
+                  ? Colors.green.withOpacity(0.1)
+                  : Colors.orange.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              session.wasCompleted ? Icons.check_circle : Icons.timelapse,
+              color: session.wasCompleted ? Colors.green : Colors.orange,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  session.wasCompleted ? 'Completed Session' : 'Partial Session',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  formattedDate,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurface.withOpacity(0.7),
                   ),
                 ),
               ],
             ),
           ),
-        ),
-      ],
-    );
-  }
-  
-  Widget _buildSessionHistory(ThemeData theme) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Session History',
-          style: theme.textTheme.titleLarge,
-        ),
-        const SizedBox(height: 8),
-        ListView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: _sessions.length,
-          itemBuilder: (context, index) {
-            final session = _sessions[index];
-            return _buildSessionHistoryItem(theme, session);
-          },
-        ),
-      ],
-    );
-  }
-  
-  Widget _buildSessionHistoryItem(ThemeData theme, Session session) {
-    final dateFormat = DateFormat('MMM d, yyyy - h:mm a');
-    final formattedDate = dateFormat.format(session.timestamp);
-    
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      child: ListTile(
-        leading: Icon(
-          session.wasCompleted ? Icons.check_circle : Icons.cancel,
-          color: session.wasCompleted ? Colors.green : Colors.red,
-        ),
-        title: Text(
-          session.wasCompleted ? 'Completed Session' : 'Partial Session',
-          style: theme.textTheme.titleMedium,
-        ),
-        subtitle: Text(
-          '$formattedDate\nCompletion: ${session.completionPercentage.toStringAsFixed(1)}% • Duration: ${session.durationInSeconds}s',
-          style: theme.textTheme.bodySmall,
-        ),
-        isThreeLine: true,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '${session.completionPercentage.toStringAsFixed(0)}%',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: session.wasCompleted ? Colors.green : Colors.orange,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _formatDuration(session.durationInSeconds),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withOpacity(0.7),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
   
+  Widget _buildAnalyticsTab(ThemeData theme) {
+    // This tab will show more detailed analytics
+    return const Center(
+      child: Text('Analytics coming soon!'),
+    );
+  }
+  
+  Widget _buildHistoryTab(ThemeData theme) {
+    // Sort sessions by date (newest first)
+    final sortedSessions = List<Session>.from(_sessions)
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: sortedSessions.length,
+      itemBuilder: (context, index) {
+        final session = sortedSessions[index];
+        return _buildSessionCard(theme, session);
+      },
+    );
+  }
+  
+  // Helper methods
   Map<DateTime, List<Session>> _getLast7DaysSessions() {
     final Map<DateTime, List<Session>> sessionsByDay = {};
     
@@ -396,5 +770,60 @@ class _ProgressScreenState extends State<ProgressScreen> {
     }
     
     return sessionsByDay;
+  }
+  
+  int _calculateStreak() {
+    if (_sessions.isEmpty) return 0;
+    
+    // Sort sessions by date
+    final sortedSessions = List<Session>.from(_sessions)
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    
+    // Group sessions by day
+    final Map<String, bool> sessionsByDay = {};
+    for (final session in sortedSessions) {
+      final day = DateFormat('yyyy-MM-dd').format(session.timestamp);
+      sessionsByDay[day] = true;
+    }
+    
+    // Calculate current streak
+    int streak = 0;
+    final now = DateTime.now();
+    
+    for (int i = 0; i < 100; i++) { // Limit to 100 days to avoid infinite loop
+      final day = DateFormat('yyyy-MM-dd').format(
+        now.subtract(Duration(days: i)),
+      );
+      
+      if (sessionsByDay.containsKey(day)) {
+        streak++;
+      } else if (i > 0) { // Skip today if no session
+        break;
+      }
+    }
+    
+    return streak;
+  }
+  
+  int _calculateAverageDuration() {
+    if (_sessions.isEmpty) return 0;
+    
+    final totalDuration = _sessions.fold<int>(
+      0,
+      (sum, session) => sum + session.durationInSeconds,
+    );
+    
+    return totalDuration ~/ _sessions.length;
+  }
+  
+  String _formatDuration(int seconds) {
+    final minutes = seconds ~/ 60;
+    final remainingSeconds = seconds % 60;
+    
+    if (minutes > 0) {
+      return '${minutes}m ${remainingSeconds}s';
+    } else {
+      return '${remainingSeconds}s';
+    }
   }
 }
