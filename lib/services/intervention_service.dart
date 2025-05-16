@@ -7,6 +7,7 @@ import '../utils/constants.dart';
 import '../utils/permission_handler.dart';
 import '../models/session.dart';
 import 'storage_service.dart';
+import 'shake_detector_service.dart';
 
 class InterventionService {
   final BuildContext context;
@@ -21,6 +22,10 @@ class InterventionService {
   DateTime _sessionStartTime = DateTime.now();
   bool _isSessionActive = false;
   final AudioPlayer _audioPlayer = AudioPlayer();
+
+  // Shake detector
+  ShakeDetectorService? _shakeDetector;
+  Completer<void>? _shakeCompleter;
 
   // Constructor
   InterventionService({
@@ -41,6 +46,68 @@ class InterventionService {
     await _executeCurrentStep();
   }
 
+  // Wait for shake confirmation
+  Future<void> _waitForShakeConfirmation(String message) async {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$message - Shake phone gently to continue'),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
+
+    // Create a completer that will be resolved when shake is detected
+    _shakeCompleter = Completer<void>();
+
+    // Initialize shake detector
+    _shakeDetector = ShakeDetectorService(
+      onShake: () {
+        if (_shakeCompleter != null && !_shakeCompleter!.isCompleted) {
+          debugPrint('Shake confirmed!');
+
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Confirmed! Proceeding to next step...'),
+                duration: Duration(seconds: 1),
+              ),
+            );
+          }
+
+          _shakeCompleter!.complete();
+        }
+      },
+    );
+
+    // Start listening for shakes
+    _shakeDetector!.startListening();
+
+    // Wait for shake or timeout after 30 seconds
+    try {
+      await _shakeCompleter!.future.timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          debugPrint('Shake timeout - proceeding anyway');
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('No shake detected - proceeding anyway'),
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
+        },
+      );
+    } catch (e) {
+      debugPrint('Error waiting for shake: $e');
+    } finally {
+      // Clean up
+      _shakeDetector?.stopListening();
+      _shakeDetector = null;
+    }
+  }
+
   // Execute the current step
   Future<void> _executeCurrentStep() async {
     if (!_isSessionActive) return;
@@ -52,19 +119,19 @@ class InterventionService {
 
     // Execute step based on index
     switch (_currentStep) {
-      case 0:
-        await _executeVibrationStep();
-        break;
-      case 1:
+      case 0: // Hold phone with left hand
         await _executeLeftHandStep();
         break;
-      case 2:
+      case 1: // Vibration for mindfulness
+        await _executeVibrationStep();
+        break;
+      case 2: // Prepare for light therapy
+        await _executePrepareForLightStep();
+        break;
+      case 3: // Flashlight activation
         await _executeFlashlightStep();
         break;
-      case 3:
-        await _executeCloseEyesStep();
-        break;
-      case 4:
+      case 4: // Listen to calming sound
         await _executeAudioStep();
         break;
       default:
@@ -84,7 +151,16 @@ class InterventionService {
     }
   }
 
-  // Step 1: Vibration for mindfulness
+  // Step 1: Hold phone with left hand
+  Future<void> _executeLeftHandStep() async {
+    // Wait for user to confirm they're holding the phone with left hand
+    await _waitForShakeConfirmation('Hold phone with your left hand');
+
+    // Give them a moment to adjust their grip after shaking
+    await Future.delayed(const Duration(seconds: 2));
+  }
+
+  // Step 2: Vibration for mindfulness
   Future<void> _executeVibrationStep() async {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -109,12 +185,15 @@ class InterventionService {
     }
   }
 
-  // Step 2: Hold phone with left hand
-  Future<void> _executeLeftHandStep() async {
-    // This step is passive - just wait for the specified duration
-    await Future.delayed(
-      Duration(seconds: AppConstants.leftHandHoldDurationSec),
+  // Step 3: Prepare for light therapy
+  Future<void> _executePrepareForLightStep() async {
+    // Wait for user to confirm they're ready for light therapy
+    await _waitForShakeConfirmation(
+      'Position phone so flash faces your closed eyes',
     );
+
+    // Give them a moment to get ready after shaking
+    await Future.delayed(const Duration(seconds: 2));
   }
 
   // Step 3: Flashlight activation
@@ -128,34 +207,41 @@ class InterventionService {
       );
     }
 
-    // Use actual flashlight
-    if (await PermissionUtil.requestFlashlightPermission(context)) {
-      try {
+    // Use actual flashlight - simplified approach
+    try {
+      // Check if device has torch
+      bool hasTorch = await TorchLight.isTorchAvailable();
+      debugPrint('Device has torch: $hasTorch');
+
+      if (hasTorch) {
+        // Enable torch
         await TorchLight.enableTorch();
+        debugPrint('Torch enabled');
+
+        // Keep torch on for specified duration
         await Future.delayed(
           Duration(milliseconds: AppConstants.flashlightDurationMs),
         );
+
+        // Disable torch
         await TorchLight.disableTorch();
-      } catch (e) {
-        debugPrint('Error controlling flashlight: $e');
-        // Fallback if flashlight fails
+        debugPrint('Torch disabled');
+      } else {
+        debugPrint('Device does not have torch');
         await Future.delayed(
           Duration(milliseconds: AppConstants.flashlightDurationMs),
         );
       }
-    } else {
-      // Fallback if permission is denied
+    } catch (e) {
+      debugPrint('Error controlling flashlight: $e');
+      // Fallback if flashlight fails
       await Future.delayed(
         Duration(milliseconds: AppConstants.flashlightDurationMs),
       );
     }
   }
 
-  // Step 4: Close eyes and face light
-  Future<void> _executeCloseEyesStep() async {
-    // This step is passive - just wait for a few seconds
-    await Future.delayed(const Duration(seconds: 5));
-  }
+  // This method was removed as it's no longer needed
 
   // Step 5: Play calming sound
   Future<void> _executeAudioStep() async {
@@ -170,18 +256,71 @@ class InterventionService {
         );
       }
 
-      // Play actual audio
-      await _audioPlayer.play(AssetSource(AppConstants.calmingAudioPath));
+      debugPrint(
+        'Attempting to play audio from: ${AppConstants.calmingAudioPath}',
+      );
+
+      // Play actual audio - using a different URL that's more reliable
+      // You can replace this with a real MP3 file in your assets later
+      const String testAudioUrl =
+          'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
+
+      // Set volume to maximum
+      await _audioPlayer.setVolume(1.0);
+      debugPrint('Volume set to maximum');
+
+      // Set release mode to stop audio when app is in background
+      await _audioPlayer.setReleaseMode(ReleaseMode.release);
+
+      // Request audio focus (important for Android)
+      await _audioPlayer.setPlayerMode(PlayerMode.mediaPlayer);
+      debugPrint('Set player mode to media player');
+
+      // Play the audio
+      await _audioPlayer.play(UrlSource(testAudioUrl));
+      debugPrint('Audio playback started');
+
+      // Add a listener to track audio state
+      _audioPlayer.onPlayerStateChanged.listen((state) {
+        debugPrint('Audio player state changed: $state');
+      });
+
+      // Add a listener to track audio position
+      _audioPlayer.onPositionChanged.listen((position) {
+        debugPrint('Audio position: ${position.inSeconds}s');
+      });
+
+      // Add a listener to track audio completion
+      _audioPlayer.onPlayerComplete.listen((_) {
+        debugPrint('Audio playback completed');
+      });
 
       // Wait for audio to play
-      await Future.delayed(const Duration(seconds: 10));
+      for (int i = 0; i < 10; i++) {
+        await Future.delayed(const Duration(seconds: 1));
+        final state = _audioPlayer.state;
+        debugPrint('Audio state after ${i + 1} seconds: $state');
+      }
 
       // Stop the audio
       await _audioPlayer.stop();
+      debugPrint('Audio playback stopped');
     } catch (e) {
-      debugPrint('Error playing audio: $e');
-      // Fallback if audio fails
-      await Future.delayed(const Duration(seconds: 10));
+      debugPrint('Error playing audio from URL: $e');
+
+      // Try playing a system beep sound as fallback
+      try {
+        debugPrint('Trying to play system beep sound...');
+        // Use a short beep sound that's built into Android
+        await _audioPlayer.play(AssetSource('audio/beep.mp3'));
+        await Future.delayed(const Duration(seconds: 1));
+        await _audioPlayer.stop();
+      } catch (e2) {
+        debugPrint('Error playing fallback sound: $e2');
+      }
+
+      // Wait for the remaining time
+      await Future.delayed(const Duration(seconds: 9));
     }
   }
 
@@ -225,6 +364,15 @@ class InterventionService {
       debugPrint('Error disabling torch: $e');
     }
 
+    // Clean up shake detector
+    _shakeDetector?.dispose();
+    _shakeDetector = null;
+
+    // Complete any pending shake completer to avoid hanging
+    if (_shakeCompleter != null && !_shakeCompleter!.isCompleted) {
+      _shakeCompleter!.complete();
+    }
+
     // Calculate session duration and completion percentage
     final sessionEndTime = DateTime.now();
     final durationInSeconds =
@@ -250,6 +398,12 @@ class InterventionService {
     if (_isSessionActive) {
       abortSession();
     }
+
+    // Clean up shake detector
+    _shakeDetector?.dispose();
+    _shakeDetector = null;
+
+    // Clean up audio player
     _audioPlayer.dispose();
   }
 }

@@ -46,6 +46,7 @@ dependencies:
   provider: ^6.1.1
   intl: ^0.19.0
   permission_handler: ^11.0.1
+  sensors_plus: ^4.0.2
 
 dev_dependencies:
   flutter_test:
@@ -71,6 +72,7 @@ flutter:
   # To add assets to your application, add an assets section, like this:
   assets:
     - assets/audio/
+    - assets/audio/beep.mp3
     - assets/images/
 
   # An image asset can refer to one or more resolution-specific "variants", see
