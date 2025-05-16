@@ -185,28 +185,63 @@ class InterventionService {
 
   // Step 2: Vibration for mindfulness
   Future<void> _executeVibrationStep() async {
-    final message = 'Phone vibrating for mindfulness. Focus on your breath.';
+    final message =
+        'Phone vibrating for mindfulness. Focus on your breath with each vibration pulse.';
 
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+        SnackBar(content: Text(message), duration: const Duration(seconds: 3)),
       );
     }
 
     // Speak the instruction
     await _ttsService.speak(message);
 
-    // Use actual vibration
+    // Add a small pause after speaking before starting vibration
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    // Use actual vibration with pattern
     if (await Vibration.hasVibrator()) {
-      await Vibration.vibrate(duration: AppConstants.vibrationDurationMs);
-      await Future.delayed(
-        Duration(milliseconds: AppConstants.vibrationDurationMs + 500),
+      // Create a pulsing vibration pattern
+      for (int i = 0; i < AppConstants.vibrationPatternCount; i++) {
+        // Vibrate
+        debugPrint(
+          'Vibration pulse ${i + 1}/${AppConstants.vibrationPatternCount}',
+        );
+        await Vibration.vibrate(duration: AppConstants.vibrationDurationMs);
+
+        // Wait for vibration to complete
+        await Future.delayed(
+          Duration(milliseconds: AppConstants.vibrationDurationMs),
+        );
+
+        // Pause between pulses (except after the last one)
+        if (i < AppConstants.vibrationPatternCount - 1) {
+          await Future.delayed(
+            Duration(milliseconds: AppConstants.vibrationPatternIntervalMs),
+          );
+        }
+      }
+
+      // Final pause after vibration sequence
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // Speak completion message
+      await _ttsService.speak(
+        'Vibration sequence complete. Take a deep breath.',
       );
     } else {
       // Fallback if vibration is not available
-      await Future.delayed(
-        Duration(milliseconds: AppConstants.vibrationDurationMs + 500),
+      await _ttsService.speak(
+        'Your device does not support vibration. Please imagine gentle pulses as you breathe.',
       );
+
+      // Simulate the time it would take for vibration pattern
+      final totalDuration =
+          AppConstants.vibrationPatternCount *
+          (AppConstants.vibrationDurationMs +
+              AppConstants.vibrationPatternIntervalMs);
+      await Future.delayed(Duration(milliseconds: totalDuration));
     }
   }
 
@@ -224,61 +259,89 @@ class InterventionService {
   // Step 3: Flashlight activation
   Future<void> _executeFlashlightStep() async {
     final message =
-        'Flashlight activated for light therapy. Keep your eyes closed.';
+        'Flashlight pattern activated for light therapy. Keep your eyes closed and focus on the rhythm.';
 
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+        SnackBar(content: Text(message), duration: const Duration(seconds: 3)),
       );
     }
 
     // Speak the instruction
     await _ttsService.speak(message);
 
-    // Use actual flashlight - simplified approach
+    // Add a small pause after speaking before starting flashlight
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    // Use actual flashlight with pattern
     try {
       // Check if device has torch
       bool hasTorch = await TorchLight.isTorchAvailable();
       debugPrint('Device has torch: $hasTorch');
 
       if (hasTorch) {
-        // Enable torch
-        await TorchLight.enableTorch();
-        debugPrint('Torch enabled');
+        // Create a pulsing flashlight pattern
+        for (int i = 0; i < AppConstants.flashlightPatternCount; i++) {
+          // Enable torch
+          debugPrint(
+            'Flash pulse ${i + 1}/${AppConstants.flashlightPatternCount}',
+          );
+          await TorchLight.enableTorch();
+          debugPrint('Torch enabled');
 
-        // Keep torch on for specified duration
-        await Future.delayed(
-          Duration(milliseconds: AppConstants.flashlightDurationMs),
-        );
+          // Keep torch on for specified duration
+          await Future.delayed(
+            Duration(milliseconds: AppConstants.flashlightDurationMs),
+          );
 
-        // Disable torch
-        await TorchLight.disableTorch();
-        debugPrint('Torch disabled');
+          // Disable torch
+          await TorchLight.disableTorch();
+          debugPrint('Torch disabled');
+
+          // Pause between flashes (except after the last one)
+          if (i < AppConstants.flashlightPatternCount - 1) {
+            await Future.delayed(
+              Duration(milliseconds: AppConstants.flashlightPatternIntervalMs),
+            );
+          }
+        }
+
+        // Final pause after flashlight sequence
+        await Future.delayed(const Duration(milliseconds: 500));
 
         // Speak completion message
-        await _ttsService.speak('Light therapy complete.');
+        await _ttsService.speak(
+          'Light therapy sequence complete. Take a moment to relax your eyes.',
+        );
       } else {
         debugPrint('Device does not have torch');
-        await Future.delayed(
-          Duration(milliseconds: AppConstants.flashlightDurationMs),
-        );
 
         // Speak error message
         await _ttsService.speak(
-          'Your device does not have a flashlight. Moving to next step.',
+          'Your device does not have a flashlight. Please imagine gentle light pulses with your eyes closed.',
         );
+
+        // Simulate the time it would take for flashlight pattern
+        final totalDuration =
+            AppConstants.flashlightPatternCount *
+            (AppConstants.flashlightDurationMs +
+                AppConstants.flashlightPatternIntervalMs);
+        await Future.delayed(Duration(milliseconds: totalDuration));
       }
     } catch (e) {
       debugPrint('Error controlling flashlight: $e');
-      // Fallback if flashlight fails
-      await Future.delayed(
-        Duration(milliseconds: AppConstants.flashlightDurationMs),
-      );
 
       // Speak error message
       await _ttsService.speak(
-        'There was an issue with the flashlight. Moving to next step.',
+        'There was an issue with the flashlight. Please imagine gentle light pulses with your eyes closed.',
       );
+
+      // Simulate the time it would take for flashlight pattern
+      final totalDuration =
+          AppConstants.flashlightPatternCount *
+          (AppConstants.flashlightDurationMs +
+              AppConstants.flashlightPatternIntervalMs);
+      await Future.delayed(Duration(milliseconds: totalDuration));
     }
   }
 

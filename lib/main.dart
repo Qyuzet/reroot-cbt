@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'l10n/app_localizations.dart';
 import 'screens/home_screen.dart';
 import 'services/storage_service.dart';
-import 'themes/app_theme.dart';
+import 'theme/app_theme.dart';
 import 'utils/constants.dart';
 
 void main() async {

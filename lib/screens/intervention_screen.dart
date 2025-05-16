@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import '../services/intervention_service.dart';
 import '../utils/constants.dart';
-import '../widgets/progress_indicator.dart';
-import '../widgets/intervention_step.dart';
+import '../widgets/intervention_step_card.dart';
+import '../widgets/progress_card.dart';
+import '../theme/app_theme.dart';
 
 class InterventionScreen extends StatefulWidget {
   const InterventionScreen({super.key});
@@ -11,34 +12,53 @@ class InterventionScreen extends StatefulWidget {
   State<InterventionScreen> createState() => _InterventionScreenState();
 }
 
-class _InterventionScreenState extends State<InterventionScreen> {
+class _InterventionScreenState extends State<InterventionScreen>
+    with SingleTickerProviderStateMixin {
   late InterventionService _interventionService;
   int _currentStep = 0;
   double _progress = 0.0;
   bool _isSessionActive = false;
 
+  // Animation controller for smooth transitions
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+
   // Step icons
   final List<IconData> _stepIcons = [
-    Icons.vibration,
     Icons.pan_tool,
+    Icons.vibration,
+    Icons.flashlight_on_outlined,
     Icons.flashlight_on,
-    Icons.visibility_off,
     Icons.music_note,
   ];
 
   // Step descriptions
   final List<String> _stepDescriptions = [
     'Hold your phone with your left hand, then shake gently to confirm',
-    'Feel the vibration and focus on your breath',
+    'Feel the vibration and focus on your breath with each pulse',
     'Position the phone so the flash faces your closed eyes, then shake to confirm',
-    'The flashlight will activate briefly for light therapy',
-    'Listen to the calming sound and relax',
+    'The flashlight will activate in a pattern for light therapy',
+    'Listen to the calming sound and relax your mind',
   ];
 
   @override
   void initState() {
     super.initState();
+    _initializeAnimations();
     _initializeInterventionService();
+  }
+
+  void _initializeAnimations() {
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
+    );
+
+    _animationController.forward();
   }
 
   void _initializeInterventionService() {
@@ -48,6 +68,9 @@ class _InterventionScreenState extends State<InterventionScreen> {
         setState(() {
           _currentStep = step;
         });
+        // Animate transition between steps
+        _animationController.reset();
+        _animationController.forward();
       },
       onProgressChanged: (progress) {
         setState(() {
@@ -66,8 +89,8 @@ class _InterventionScreenState extends State<InterventionScreen> {
     _interventionService.startSession();
   }
 
-  void _abortSession() {
-    _interventionService.abortSession();
+  Future<void> _abortSession() async {
+    await _interventionService.abortSession();
   }
 
   void _handleSessionCompleted() {
@@ -75,26 +98,78 @@ class _InterventionScreenState extends State<InterventionScreen> {
       _isSessionActive = false;
     });
 
-    // Show completion dialog
+    // Show completion dialog with beautiful styling
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Session Completed'),
-            content: const Text(
-              'Great job! You\'ve successfully completed the intervention session.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context); // Close dialog
-                  Navigator.pop(context); // Return to home screen
-                },
-                child: const Text('Return to Home'),
-              ),
-            ],
+      builder: (context) {
+        final theme = Theme.of(context);
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
           ),
+          elevation: 0,
+          backgroundColor: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: theme.colorScheme.primary.withOpacity(0.2),
+                  blurRadius: 15,
+                  spreadRadius: 0,
+                  offset: const Offset(0, 5),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.check_circle_outline,
+                  color: Colors.green,
+                  size: 70,
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Session Completed',
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Great job! You\'ve successfully completed the intervention session.',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyLarge?.copyWith(height: 1.5),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context); // Close dialog
+                    Navigator.pop(context); // Return to home screen
+                  },
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 30,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                  ),
+                  child: const Text(
+                    'Return to Home',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -104,8 +179,96 @@ class _InterventionScreenState extends State<InterventionScreen> {
     });
   }
 
+  Future<bool> _onWillPop() async {
+    if (_isSessionActive) {
+      // Show confirmation dialog
+      final shouldPop = await showDialog<bool>(
+        context: context,
+        builder: (context) {
+          final theme = Theme.of(context);
+          return Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            elevation: 0,
+            backgroundColor: Colors.transparent,
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: theme.colorScheme.primary.withOpacity(0.2),
+                    blurRadius: 15,
+                    spreadRadius: 0,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.warning_amber_rounded,
+                    color: Colors.amber,
+                    size: 70,
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'End Session?',
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Are you sure you want to end the current session? Your progress will be saved.',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyLarge?.copyWith(height: 1.5),
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const Text('Cancel'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () {
+                          _abortSession();
+                          Navigator.pop(context, true);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 10,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                        ),
+                        child: const Text('End Session'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+      return shouldPop ?? false;
+    }
+    return true;
+  }
+
   @override
   void dispose() {
+    _animationController.dispose();
     _interventionService.dispose();
     super.dispose();
   }
@@ -114,102 +277,143 @@ class _InterventionScreenState extends State<InterventionScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Intervention Session'),
-        automaticallyImplyLeading: !_isSessionActive,
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Progress indicator
-            Padding(
-              padding: const EdgeInsets.all(16),
+    return WillPopScope(
+      onWillPop: _onWillPop,
+      child: Scaffold(
+        extendBodyBehindAppBar: true,
+        appBar: AppBar(
+          title: const Text('Intervention Session'),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          automaticallyImplyLeading: !_isSessionActive,
+          actions: [
+            if (_isSessionActive)
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => _onWillPop(),
+              ),
+          ],
+        ),
+        body: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                theme.colorScheme.primary.withOpacity(0.8),
+                theme.colorScheme.primaryContainer.withOpacity(0.6),
+              ],
+            ),
+          ),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(20.0),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('Session Progress', style: theme.textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                  SessionProgressIndicator(
+                  // Progress card
+                  ProgressCard(
                     progress: _progress,
                     progressColor: theme.colorScheme.primary,
-                    backgroundColor: theme.colorScheme.primary.withAlpha(
-                      51,
-                    ), // 0.2 opacity = 51 alpha
+                    backgroundColor: theme.colorScheme.primary.withOpacity(0.2),
                   ),
-                ],
-              ),
-            ),
 
-            // Divider
-            Divider(color: theme.dividerColor, thickness: 1),
+                  const SizedBox(height: 30),
 
-            // Steps list
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                itemCount: AppConstants.interventionSteps.length,
-                itemBuilder: (context, index) {
-                  final isActive = index == _currentStep && _isSessionActive;
-                  final isCompleted = index < _currentStep;
-
-                  return InterventionStepWidget(
-                    title: AppConstants.interventionSteps[index],
-                    description: _stepDescriptions[index],
-                    icon: _stepIcons[index],
-                    isActive: isActive,
-                    isCompleted: isCompleted,
-                  );
-                },
-              ),
-            ),
-
-            // Action buttons
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  if (!_isSessionActive)
+                  // Active step card with fade animation
+                  if (_isSessionActive)
                     Expanded(
-                      child: ElevatedButton(
-                        onPressed: _startSession,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: theme.colorScheme.primary,
-                          foregroundColor: theme.colorScheme.onPrimary,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        child: const Text(
-                          'Start Session',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
+                      child: FadeTransition(
+                        opacity: _fadeAnimation,
+                        child: InterventionStepCard(
+                          stepNumber: 'Step ${_currentStep + 1}',
+                          title: AppConstants.interventionSteps[_currentStep],
+                          description: _stepDescriptions[_currentStep],
+                          icon: _stepIcons[_currentStep],
+                          isActive: true,
+                          progress: _progress,
                         ),
                       ),
                     )
                   else
                     Expanded(
-                      child: ElevatedButton(
-                        onPressed: _abortSession,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        child: const Text(
-                          'Break',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.spa_outlined,
+                              size: 80,
+                              color: theme.colorScheme.onPrimary.withOpacity(
+                                0.9,
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            Text(
+                              'Ready to Begin',
+                              style: theme.textTheme.headlineMedium?.copyWith(
+                                color: theme.colorScheme.onPrimary,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'This session will guide you through a series of mindfulness exercises',
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodyLarge?.copyWith(
+                                color: theme.colorScheme.onPrimary.withOpacity(
+                                  0.9,
+                                ),
+                                height: 1.5,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
+
+                  const SizedBox(height: 30),
+
+                  // Action button
+                  Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(30),
+                      boxShadow: [
+                        BoxShadow(
+                          color: theme.colorScheme.primary.withOpacity(0.2),
+                          blurRadius: 8,
+                          spreadRadius: 0,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: ElevatedButton(
+                      onPressed:
+                          _isSessionActive ? () => _onWillPop() : _startSession,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            _isSessionActive
+                                ? Colors.red
+                                : theme.colorScheme.primary,
+                        foregroundColor: theme.colorScheme.onPrimary,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                      ),
+                      child: Text(
+                        _isSessionActive ? 'End Session' : 'Start Session',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
