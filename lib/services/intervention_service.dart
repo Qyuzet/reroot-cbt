@@ -8,6 +8,7 @@ import '../utils/permission_handler.dart';
 import '../models/session.dart';
 import 'storage_service.dart';
 import 'shake_detector_service.dart';
+import 'tts_service.dart';
 
 class InterventionService {
   final BuildContext context;
@@ -26,6 +27,9 @@ class InterventionService {
   // Shake detector
   ShakeDetectorService? _shakeDetector;
   Completer<void>? _shakeCompleter;
+
+  // Text-to-speech service
+  final TtsService _ttsService = TtsService();
 
   // Constructor
   InterventionService({
@@ -48,14 +52,20 @@ class InterventionService {
 
   // Wait for shake confirmation
   Future<void> _waitForShakeConfirmation(String message) async {
+    final voiceMessage = '$message. Shake phone gently to continue.';
+
+    // Show visual message
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('$message - Shake phone gently to continue'),
+          content: Text(voiceMessage),
           duration: const Duration(seconds: 5),
         ),
       );
     }
+
+    // Speak the instruction with female voice
+    await _ttsService.speak(voiceMessage);
 
     // Create a completer that will be resolved when shake is detected
     _shakeCompleter = Completer<void>();
@@ -65,6 +75,12 @@ class InterventionService {
       onShake: () {
         if (_shakeCompleter != null && !_shakeCompleter!.isCompleted) {
           debugPrint('Shake confirmed!');
+
+          // Stop the TTS if it's still speaking
+          _ttsService.stop();
+
+          // Speak confirmation
+          _ttsService.speak('Confirmed! Proceeding to next step.');
 
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -89,6 +105,13 @@ class InterventionService {
         const Duration(seconds: 30),
         onTimeout: () {
           debugPrint('Shake timeout - proceeding anyway');
+
+          // Stop the TTS if it's still speaking
+          _ttsService.stop();
+
+          // Speak timeout message
+          _ttsService.speak('No shake detected. Proceeding anyway.');
+
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
@@ -135,7 +158,7 @@ class InterventionService {
         await _executeAudioStep();
         break;
       default:
-        _completeSession();
+        await _completeSession();
         return;
     }
 
@@ -144,7 +167,7 @@ class InterventionService {
       _currentStep++;
 
       if (_currentStep >= _totalSteps) {
-        _completeSession();
+        await _completeSession();
       } else {
         await _executeCurrentStep();
       }
@@ -162,14 +185,16 @@ class InterventionService {
 
   // Step 2: Vibration for mindfulness
   Future<void> _executeVibrationStep() async {
+    final message = 'Phone vibrating for mindfulness. Focus on your breath.';
+
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Phone vibrating for mindfulness...'),
-          duration: Duration(seconds: 2),
-        ),
+        SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
       );
     }
+
+    // Speak the instruction
+    await _ttsService.speak(message);
 
     // Use actual vibration
     if (await Vibration.hasVibrator()) {
@@ -198,14 +223,17 @@ class InterventionService {
 
   // Step 3: Flashlight activation
   Future<void> _executeFlashlightStep() async {
+    final message =
+        'Flashlight activated for light therapy. Keep your eyes closed.';
+
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Flashlight activated...'),
-          duration: Duration(seconds: 2),
-        ),
+        SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
       );
     }
+
+    // Speak the instruction
+    await _ttsService.speak(message);
 
     // Use actual flashlight - simplified approach
     try {
@@ -226,10 +254,18 @@ class InterventionService {
         // Disable torch
         await TorchLight.disableTorch();
         debugPrint('Torch disabled');
+
+        // Speak completion message
+        await _ttsService.speak('Light therapy complete.');
       } else {
         debugPrint('Device does not have torch');
         await Future.delayed(
           Duration(milliseconds: AppConstants.flashlightDurationMs),
+        );
+
+        // Speak error message
+        await _ttsService.speak(
+          'Your device does not have a flashlight. Moving to next step.',
         );
       }
     } catch (e) {
@@ -238,6 +274,11 @@ class InterventionService {
       await Future.delayed(
         Duration(milliseconds: AppConstants.flashlightDurationMs),
       );
+
+      // Speak error message
+      await _ttsService.speak(
+        'There was an issue with the flashlight. Moving to next step.',
+      );
     }
   }
 
@@ -245,22 +286,31 @@ class InterventionService {
 
   // Step 5: Play calming sound
   Future<void> _executeAudioStep() async {
+    final message =
+        'Now listen to this calming sound and relax. Take deep breaths.';
+
     try {
       // Show a message to the user
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Playing calming sound...'),
-            duration: Duration(seconds: 3),
+          SnackBar(
+            content: Text(message),
+            duration: const Duration(seconds: 3),
           ),
         );
       }
+
+      // Speak the instruction
+      await _ttsService.speak(message);
+
+      // Wait a moment after speaking before playing audio
+      await Future.delayed(const Duration(seconds: 1));
 
       debugPrint(
         'Attempting to play audio from: ${AppConstants.calmingAudioPath}',
       );
 
-      // Play actual audio - using a different URL that's more reliable
+      // Play actual audio - using a URL instead of asset for testing
       // You can replace this with a real MP3 file in your assets later
       const String testAudioUrl =
           'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
@@ -305,8 +355,14 @@ class InterventionService {
       // Stop the audio
       await _audioPlayer.stop();
       debugPrint('Audio playback stopped');
+
+      // Speak completion message
+      await _ttsService.speak('Calming sound session complete.');
     } catch (e) {
       debugPrint('Error playing audio from URL: $e');
+
+      // Speak error message
+      await _ttsService.speak('There was an issue playing the calming sound.');
 
       // Try playing a system beep sound as fallback
       try {
@@ -325,10 +381,15 @@ class InterventionService {
   }
 
   // Complete the session
-  void _completeSession() {
+  Future<void> _completeSession() async {
     if (!_isSessionActive) return;
 
     _isSessionActive = false;
+
+    // Speak completion message
+    await _ttsService.speak(
+      'Congratulations! You have completed the intervention session successfully.',
+    );
 
     // Calculate session duration
     final sessionEndTime = DateTime.now();
@@ -351,10 +412,15 @@ class InterventionService {
   }
 
   // Abort the session
-  void abortSession() {
+  Future<void> abortSession() async {
     if (!_isSessionActive) return;
 
     _isSessionActive = false;
+
+    // Speak abort message
+    await _ttsService.speak(
+      'Session interrupted. That\'s okay, you can try again later.',
+    );
 
     // Clean up resources
     _audioPlayer.stop();
@@ -394,14 +460,17 @@ class InterventionService {
   }
 
   // Dispose resources
-  void dispose() {
+  Future<void> dispose() async {
     if (_isSessionActive) {
-      abortSession();
+      await abortSession();
     }
 
     // Clean up shake detector
     _shakeDetector?.dispose();
     _shakeDetector = null;
+
+    // Clean up TTS
+    await _ttsService.dispose();
 
     // Clean up audio player
     _audioPlayer.dispose();
