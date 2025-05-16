@@ -1,11 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-// These imports are commented out for web/desktop testing but would be used in a real Android app
-// import 'package:vibration/vibration.dart';
-// import 'package:torch_light/torch_light.dart';
-// import 'package:audioplayers/audioplayers.dart';
+import 'package:vibration/vibration.dart';
+import 'package:torch_light/torch_light.dart';
+import 'package:audioplayers/audioplayers.dart';
 import '../utils/constants.dart';
-// import '../utils/permission_handler.dart';
+import '../utils/permission_handler.dart';
 import '../models/session.dart';
 import 'storage_service.dart';
 
@@ -21,8 +20,7 @@ class InterventionService {
   final int _totalSteps = AppConstants.interventionSteps.length;
   DateTime _sessionStartTime = DateTime.now();
   bool _isSessionActive = false;
-  // In a real Android app, this would be used:
-  // final AudioPlayer _audioPlayer = AudioPlayer();
+  final AudioPlayer _audioPlayer = AudioPlayer();
 
   // Constructor
   InterventionService({
@@ -88,7 +86,6 @@ class InterventionService {
 
   // Step 1: Vibration for mindfulness
   Future<void> _executeVibrationStep() async {
-    // For testing in web/desktop environments, we'll simulate vibration
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -98,20 +95,18 @@ class InterventionService {
       );
     }
 
-    // Simulate vibration with a delay
-    await Future.delayed(
-      Duration(milliseconds: AppConstants.vibrationDurationMs + 500),
-    );
-
-    // In a real Android app, you would use:
-    // import 'package:vibration/vibration.dart';
-    //
-    // if (await Vibration.hasVibrator() ?? false) {
-    //   await Vibration.vibrate(duration: AppConstants.vibrationDurationMs);
-    //   await Future.delayed(
-    //     Duration(milliseconds: AppConstants.vibrationDurationMs + 500),
-    //   );
-    // }
+    // Use actual vibration
+    if (await Vibration.hasVibrator()) {
+      await Vibration.vibrate(duration: AppConstants.vibrationDurationMs);
+      await Future.delayed(
+        Duration(milliseconds: AppConstants.vibrationDurationMs + 500),
+      );
+    } else {
+      // Fallback if vibration is not available
+      await Future.delayed(
+        Duration(milliseconds: AppConstants.vibrationDurationMs + 500),
+      );
+    }
   }
 
   // Step 2: Hold phone with left hand
@@ -124,7 +119,6 @@ class InterventionService {
 
   // Step 3: Flashlight activation
   Future<void> _executeFlashlightStep() async {
-    // For testing in web/desktop environments, we'll simulate flashlight
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -134,23 +128,27 @@ class InterventionService {
       );
     }
 
-    // Simulate flashlight with a delay
-    await Future.delayed(
-      Duration(milliseconds: AppConstants.flashlightDurationMs),
-    );
-
-    // In a real Android app, you would use:
-    // if (await PermissionUtil.requestFlashlightPermission(context)) {
-    //   try {
-    //     await TorchLight.enableTorch();
-    //     await Future.delayed(
-    //       Duration(milliseconds: AppConstants.flashlightDurationMs),
-    //     );
-    //     await TorchLight.disableTorch();
-    //   } catch (e) {
-    //     debugPrint('Error controlling flashlight: $e');
-    //   }
-    // }
+    // Use actual flashlight
+    if (await PermissionUtil.requestFlashlightPermission(context)) {
+      try {
+        await TorchLight.enableTorch();
+        await Future.delayed(
+          Duration(milliseconds: AppConstants.flashlightDurationMs),
+        );
+        await TorchLight.disableTorch();
+      } catch (e) {
+        debugPrint('Error controlling flashlight: $e');
+        // Fallback if flashlight fails
+        await Future.delayed(
+          Duration(milliseconds: AppConstants.flashlightDurationMs),
+        );
+      }
+    } else {
+      // Fallback if permission is denied
+      await Future.delayed(
+        Duration(milliseconds: AppConstants.flashlightDurationMs),
+      );
+    }
   }
 
   // Step 4: Close eyes and face light
@@ -162,10 +160,6 @@ class InterventionService {
   // Step 5: Play calming sound
   Future<void> _executeAudioStep() async {
     try {
-      // For testing purposes, we'll just simulate audio playback
-      // In a real app, you would use:
-      // await _audioPlayer.play(AssetSource(AppConstants.calmingAudioPath));
-
       // Show a message to the user
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -176,13 +170,18 @@ class InterventionService {
         );
       }
 
-      // Simulate audio playback with a delay
+      // Play actual audio
+      await _audioPlayer.play(AssetSource(AppConstants.calmingAudioPath));
+
+      // Wait for audio to play
       await Future.delayed(const Duration(seconds: 10));
 
-      // In a real app, you would stop the audio:
-      // await _audioPlayer.stop();
+      // Stop the audio
+      await _audioPlayer.stop();
     } catch (e) {
       debugPrint('Error playing audio: $e');
+      // Fallback if audio fails
+      await Future.delayed(const Duration(seconds: 10));
     }
   }
 
@@ -219,9 +218,12 @@ class InterventionService {
     _isSessionActive = false;
 
     // Clean up resources
-    // In a real Android app, these would be used:
-    // _audioPlayer.stop();
-    // TorchLight.disableTorch();
+    _audioPlayer.stop();
+    try {
+      TorchLight.disableTorch();
+    } catch (e) {
+      debugPrint('Error disabling torch: $e');
+    }
 
     // Calculate session duration and completion percentage
     final sessionEndTime = DateTime.now();
@@ -248,7 +250,6 @@ class InterventionService {
     if (_isSessionActive) {
       abortSession();
     }
-    // In a real Android app, this would be used:
-    // _audioPlayer.dispose();
+    _audioPlayer.dispose();
   }
 }
